@@ -63,6 +63,102 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
         elements = [*app.markdown, *app.info]
         return "\n".join(element.value for element in elements)
 
+    @staticmethod
+    def _select_cloth_widths(app, first, second):
+        app.selectbox(key="cloth_width_1_mm").select(first)
+        app.selectbox(key="cloth_width_2_mm").select(second).run()
+
+    def _enter_controlling_typea_class3_mixed_width_form(self, app):
+        self._enter_complete_form_except_cloth_width(
+            app,
+            mechanism="Dent w/crack",
+            remaining_wall=9.53,
+            defect_length=140.0,
+        )
+        app.checkbox(key="show_typea_class3_check").set_value(True)
+        self._select_cloth_widths(app, 500, 300)
+
+    def test_cloth_width_selectors_start_neutral_with_only_approved_widths(self):
+        app = AppTest.from_file("PWR110Calculator.py").run()
+        selectors = {
+            selector.key: selector
+            for selector in app.selectbox
+            if selector.key in {"cloth_width_1_mm", "cloth_width_2_mm"}
+        }
+
+        self.assertEqual(set(selectors), {"cloth_width_1_mm", "cloth_width_2_mm"})
+        for selector in selectors.values():
+            with self.subTest(selector=selector.key):
+                self.assertEqual(selector.options, ["Select…", "300", "500"])
+                self.assertEqual(selector.value, "Select…")
+
+    def test_all_width_plans_render_exact_effective_coverage(self):
+        for widths, expected_plan in (
+            ((300, 300), (0, 3, 3, 800, 900)),
+            ((500, 300), (1, 1, 2, 750, 800)),
+            ((500, 500), (2, 0, 2, 950, 1000)),
+        ):
+            with self.subTest(widths=widths):
+                app = AppTest.from_file("PWR110Calculator.py").run()
+                self._enter_complete_form_except_cloth_width(
+                    app, defect_length=348.246,
+                )
+                self._select_cloth_widths(app, *widths)
+                self._calculate_button(app).click().run()
+
+                rendered = self._rendered_markdown(app)
+                self.assertTrue(app.session_state["calc_active"])
+                self.assertIn(
+                    f"**500 mm Bands:** {expected_plan[0]}", rendered,
+                )
+                self.assertIn(
+                    f"**300 mm Bands:** {expected_plan[1]}", rendered,
+                )
+                self.assertIn(
+                    f"**Total Axial Bands:** {expected_plan[2]}", rendered,
+                )
+                self.assertIn("**Req. Length (ISO):** 637 mm", rendered)
+                for expected in (
+                    f"**Effective Covered Length:** {expected_plan[3]} mm",
+                    f"**Procurement Axial Length:** {expected_plan[4]} mm",
+                ):
+                    with self.subTest(widths=widths, expected=expected):
+                        self.assertIn(expected, rendered)
+                if widths == (500, 300):
+                    for expected in (
+                        "**Fabric Needed:** 3.45 m²",
+                        "**Epoxy Total:** 4.1 kg",
+                        "4. **Wrapping:** Install **1 x 500 mm** and "
+                        "**1 x 300 mm** axial band(s), **2 total**. "
+                        "Maintain the fixed 50 mm inter-band stitch overlap.",
+                    ):
+                        with self.subTest(widths=widths, expected=expected):
+                            self.assertIn(expected, rendered)
+                self.assertNotIn("band(s) of", rendered)
+                self.assertEqual(list(app.exception), [])
+
+    def test_controlling_typea_class3_uses_reversed_widths_for_mixed_procurement(self):
+        app = AppTest.from_file("PWR110Calculator.py").run()
+        self._enter_controlling_typea_class3_mixed_width_form(app)
+
+        self._calculate_button(app).click().run()
+
+        rendered = self._rendered_markdown(app)
+        for expected in (
+            "**Structural Control:** ISO Type A / Class 3 controls displayed plies.",
+            "**Req. Length (ISO):** 637 mm",
+            "**500 mm Bands:** 1",
+            "**300 mm Bands:** 1",
+            "**Total Axial Bands:** 2",
+            "**Effective Covered Length:** 750 mm",
+            "**Procurement Axial Length:** 800 mm",
+            "**Fabric Needed:** 10.34 m²",
+            "**Epoxy Total:** 12.4 kg",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, rendered)
+        self.assertEqual(list(app.exception), [])
+
     def test_mechanism_selector_uses_the_two_canonical_dent_choices(self):
         app = AppTest.from_file("PWR110Calculator.py").run()
 
@@ -152,7 +248,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
             remaining_wall=9.652,
             defect_length=1000.0,
         )
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -177,7 +273,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
             yield_strength=555.0,
             defect_length_basis="Actual defect length",
         )
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -234,7 +330,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
             },
         ]
         app.run()
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -284,7 +380,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
             "Separation exceeds 3t": True,
         }]
         app.run()
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
         self.assertIn(
@@ -322,7 +418,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
             "Separation exceeds 3t": False,
         }]
         app.run()
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -339,7 +435,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
         self._enter_complete_form_except_cloth_width(
             app, mechanism="Dent w/crack", remaining_wall=9.53,
         )
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -362,7 +458,7 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
         self._enter_complete_form_except_cloth_width(
             app, mechanism="Dent no-crack", remaining_wall=9.53,
         )
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self._calculate_button(app).click().run()
 
@@ -398,10 +494,13 @@ class StreamlitFormSubmissionTest(unittest.TestCase):
         self.assertFalse(app.session_state["calc_active"])
         self.assertEqual(
             [error.value for error in app.error],
-            ["Missing required fields: Prowrap CF cloth band width [mm]."],
+            [
+                "Missing required fields: Prowrap CF Cloth Width 1 [mm], "
+                "Prowrap CF Cloth Width 2 [mm].",
+            ],
         )
 
-        app.number_input(key="cloth_width_mm").set_value(300.0).run()
+        self._select_cloth_widths(app, 300, 300)
 
         self.assertEqual(self._calculate_button(app).proto.type, "primary")
         self._calculate_button(app).click().run()
